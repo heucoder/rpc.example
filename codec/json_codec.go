@@ -11,18 +11,19 @@ import (
 var _ Codec = (*JsonCodec)(nil)
 
 type JsonCodec struct {
-	io.ReadWriteCloser
-	buf *bufio.Writer
-	enc json.Encoder
-	dec json.Decoder
+	conn io.ReadWriteCloser
+	buf  *bufio.Writer
+	enc  json.Encoder
+	dec  json.Decoder
 }
 
 func NewJsonCodec(conn io.ReadWriteCloser) Codec {
 	buf := bufio.NewWriter(conn)
 	return &JsonCodec{
-		buf: buf,
-		enc: *json.NewEncoder(buf),
-		dec: *json.NewDecoder(conn),
+		conn: conn,
+		buf:  buf,
+		enc:  *json.NewEncoder(buf),
+		dec:  *json.NewDecoder(conn),
 	}
 }
 
@@ -54,4 +55,8 @@ func (j *JsonCodec) Write(head *Header, body interface{}) (err error) {
 		return err
 	}
 	return nil
+}
+
+func (c *JsonCodec) Close() error {
+	return c.conn.Close()
 }

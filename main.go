@@ -1,14 +1,11 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"net"
-	"reflect"
+	"sync"
 	"time"
-
-	"rpc.example/codec"
 )
 
 func ServerRun(addr chan string) {
@@ -25,25 +22,24 @@ func main() {
 	addr := make(chan string)
 	go ServerRun(addr)
 
-	conn, _ := net.Dial("tcp", <-addr)
-	defer func() { _ = conn.Close() }()
-
+	client, _ := Dial("tcp", <-addr)
+	defer func() { _ = client.Close() }()
 	time.Sleep(time.Second)
 
-	_ = json.NewEncoder(conn).Encode(codec.DefaultOption)
-
-	cc := codec.NewJsonCodec(conn)
+	wg := sync.WaitGroup{}
 	for i := 0; i < 5; i++ {
-		header := codec.Header{
-			ServiceMethod: "service.method",
-			Seq:           uint64(i),
-		}
-		body := reflect.ValueOf(fmt.Sprintf("req i:%v", i))
-		_ = cc.Write(&header, body.Interface())
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			var reply string
+			err := client.Call("service-method", fmt.Sprintf("req i:%v", i), &reply)
+			if err != nil {
+				log.Fatalln("main err:", err)
+				return
+			}
+			log.Println("resp:", reply)
+		}(i)
 
-		_ = cc.ReadHeader(&header)
-		var reply string
-		_ = cc.ReadBody(&reply)
-		log.Println("reply:", reply)
 	}
+	wg.Wait()
 }
