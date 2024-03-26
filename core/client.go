@@ -1,4 +1,4 @@
-package main
+package core
 
 import (
 	"encoding/json"
@@ -9,7 +9,7 @@ import (
 	"net"
 	"sync"
 
-	"rpc.example/codec"
+	"rpc.example/core/codec"
 )
 
 // func (t *T) MethodName(argType T1, replyType *T2) error
