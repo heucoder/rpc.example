@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
+	"net"
 )
 
 //如果不实现该接口，就会报错
@@ -28,7 +30,13 @@ func NewJsonCodec(conn io.ReadWriteCloser) Codec {
 }
 
 func (j *JsonCodec) ReadHeader(head *Header) error {
+	conn := (j.conn).(net.Conn)
+	log.Println("begin jsonCodec conn remote local", conn.RemoteAddr().String(), conn.LocalAddr().String())
+	defer func() {
+		log.Println("end jsonCodec conn remote local", conn.RemoteAddr().String(), conn.LocalAddr().String())
+	}()
 	return j.dec.Decode(head)
+
 }
 
 func (j *JsonCodec) ReadBody(body interface{}) error {

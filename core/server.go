@@ -53,6 +53,9 @@ func (server *Server) Accept(lis net.Listener) {
 
 func (server *Server) ServeConn(conn io.ReadWriteCloser) {
 	//解析协议
+
+	defer func() { _ = conn.Close() }()
+
 	opt := &codec.Option{}
 	err := json.NewDecoder(conn).Decode(opt)
 	if err != nil {
@@ -67,8 +70,13 @@ func (server *Server) ServeConn(conn io.ReadWriteCloser) {
 		log.Println("rpc server: ServeConn  codec.JsonType: \n", codec.JsonType)
 		return
 	}
+	f := codec.NewCodecFuncMap[opt.CodecType]
+	if f == nil {
+		log.Printf("rpc server: invalid codec type %s", opt.CodecType)
+		return
+	}
 	//构造codec
-	server.serveCodec(codec.NewJsonCodec(conn))
+	server.serveCodec(f(conn))
 }
 
 // invalidRequest is a placeholder for response argv when error occurs
@@ -77,14 +85,14 @@ var invalidRequest = struct{}{}
 func (server *Server) serveCodec(cc codec.Codec) {
 
 	sending := new(sync.Mutex)
-	wg := sync.WaitGroup{}
+	wg := new(sync.WaitGroup)
 
 	for {
 		//读requsest
 		req, err := server.readRequest(cc)
 		if err != nil {
 			if req == nil {
-				log.Println("req is nil")
+				log.Println("req is nil") //为空符合预期
 
 				break // it's not possible to recover, so close the connection
 			}
@@ -93,10 +101,11 @@ func (server *Server) serveCodec(cc codec.Codec) {
 			continue
 		}
 		wg.Add(1)
-		server.handleRequest(cc, req, sending, &wg)
+		server.handleRequest(cc, req, sending, wg)
 	}
 
 	wg.Wait()
+	log.Println("Server close")
 	_ = cc.Close()
 }
 
@@ -104,18 +113,22 @@ func (server *Server) readRequestHeader(cc codec.Codec) (*codec.Header, error) {
 	header := &codec.Header{}
 	err := cc.ReadHeader(header)
 	if err != nil {
-		log.Println("readRequestHeader err: \n", err)
+		if err != io.EOF && err != io.ErrUnexpectedEOF {
+			log.Println("readRequestHeader err: \n", err)
+		}
 		return nil, err
 	}
 	return header, nil
 }
 
 func (server *Server) readRequest(cc codec.Codec) (*request, error) {
+	log.Println("begin server.readRequest")
 	header, err := server.readRequestHeader(cc)
 	if err != nil {
-		log.Println("readRequest readRequestHeader err: \n", err)
+		log.Println("server.readRequest readRequestHeader err", err)
 		return nil, err
 	}
+	log.Println("server.readRequest 1")
 	req := &request{
 		h: header,
 	}
@@ -135,6 +148,7 @@ func (server *Server) readRequest(cc codec.Codec) (*request, error) {
 		log.Println("readRequest ReadBody err: \n", err)
 		return nil, err
 	}
+	log.Println("end server.readRequest req", req)
 	return req, nil
 }
 

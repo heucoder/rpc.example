@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"strings"
 	"sync"
 
 	"rpc.example/core/codec"
@@ -97,9 +98,12 @@ func (c *Client) terminateCalls(err error) {
 func (c *Client) receive() {
 	var err error
 	for err == nil {
+		// if !c.IsAvailable() {
+		// 	break
+		// }
 		var h codec.Header
 		if err = c.cc.ReadHeader(&h); err != nil {
-			log.Fatalln("receive ReadHeader err:", err)
+			// log.Println("receive ReadHeader err:", err) //客户端通道关闭，但是还在接受数据
 			break
 		}
 		call := c.removeCall(h.Seq)
@@ -118,6 +122,7 @@ func (c *Client) receive() {
 			call.done()
 		}
 	}
+	c.terminateCalls(err)
 }
 
 func (c *Client) send(call *Call) {
@@ -138,6 +143,7 @@ func (c *Client) send(call *Call) {
 	c.header.Error = ""
 
 	err = c.cc.Write(&c.header, call.Args)
+	// log.Println("client.send done", seq, call.Args)
 	if err != nil {
 		log.Println("Client.send error:", err)
 		call := c.removeCall(seq)
@@ -166,7 +172,7 @@ func (client *Client) Go(serviceMethod string, args, reply interface{}, done cha
 
 func (client *Client) Call(serviceMethod string, args, reply interface{}) error {
 	call := <-client.Go(serviceMethod, args, reply, make(chan *Call, 1)).Done
-
+	log.Println("Client.Call", call.Args, call.Error)
 	return call.Error
 }
 
@@ -221,6 +227,7 @@ func Dial(network, address string, opts ...*codec.Option) (client *Client, err e
 	}
 
 	conn, err := net.Dial(network, address)
+	log.Println("Dial conn remote local", conn.RemoteAddr().String(), conn.LocalAddr().String())
 	if err != nil {
 		log.Fatalln("Dial Dial err:", err)
 		return nil, err
@@ -237,4 +244,13 @@ func Dial(network, address string, opts ...*codec.Option) (client *Client, err e
 		return nil, err
 	}
 	return client, nil
+}
+
+func XDial(rpcAddr string, opts ...*codec.Option) (*Client, error) {
+	parts := strings.Split(rpcAddr, "@")
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("rpc client err: wrong format '%s', expect protocol@addr", rpcAddr)
+	}
+	protocol, addr := parts[0], parts[1]
+	return Dial(protocol, addr, opts...)
 }

@@ -3,7 +3,6 @@ package main
 import (
 	"log"
 	"net"
-	"reflect"
 	"sync"
 	"time"
 
@@ -21,60 +20,97 @@ func (f Foo) Sum(args Args, reply *int) error {
 
 func ServerRun(addr chan string) {
 	var f Foo
-	err := core.Register(f)
-	if err != nil {
-		log.Fatal("Register error:", err)
-		panic(err)
-	}
-	l, err := net.Listen("tcp", ":17777")
+	server := core.NewServer()
+	_ = server.Register(&f)
+	l, err := net.Listen("tcp", ":0")
 	if err != nil {
 		log.Fatal("network error:", err)
 	}
 	log.Println("start rpc server on", l.Addr())
 	addr <- l.Addr().String()
-	core.Accept(l)
+	server.Accept(l)
+}
+func foo(xc *core.XClient, typ, serviceMethod string, args *Args) {
+	var reply int
+	var err error
+
+	switch typ {
+	case "call":
+		err = xc.Call(serviceMethod, args, &reply)
+	case "broadcast":
+		err = xc.Broadcast(serviceMethod, args, &reply)
+	}
+	if err != nil {
+		log.Printf("%s %s error: %v", typ, serviceMethod, err)
+	} else {
+		log.Printf("%s %s success: %d + %d = %d", typ, serviceMethod, args.Num1, args.Num2, reply)
+	}
 }
 
-func main() {
-	addr := make(chan string)
-	go ServerRun(addr)
-
-	client, _ := core.Dial("tcp", <-addr)
-	defer func() { _ = client.Close() }()
-	time.Sleep(time.Second)
+func call(addr1, addr2 string) {
+	d := core.NewMulitServerDisCovery([]string{"tcp@" + addr1, "tcp@" + addr2})
+	xc := core.NewXClient(d, core.RandomSelect)
+	defer func() {
+		_ = xc.Close()
+	}()
 
 	wg := sync.WaitGroup{}
 	for i := 0; i < 5; i++ {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			var reply int
-			args := Args{Num1: i, Num2: i * i}
-			err := client.Call("Foo.Sum", args, &reply)
-			if err != nil {
-				log.Fatalln("main err:", err)
-				return
-			}
-			log.Printf("%d + %d = %d", args.Num1, args.Num2, reply)
+			foo(xc, "call", "Foo.Sum", &Args{Num1: i, Num2: i * i})
 		}(i)
-
 	}
 	wg.Wait()
-	// call("add", 1, 3)
 }
 
-func add(i, j int) {
-	log.Println(j + i)
-}
-
-func call(methodName string, arg1, arg2 interface{}) {
-	var f func(j, i int)
-	switch methodName {
-	case "add":
-		f = add
+func broadCast(addr1, addr2 string) {
+	d := core.NewMulitServerDisCovery([]string{"tcp@" + addr1, "tcp@" + addr2})
+	xc := core.NewXClient(d, core.RandomSelect)
+	defer func() { _ = xc.Close() }()
+	wg := sync.WaitGroup{}
+	for i := 0; i < 1; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			log.Println("go foo", i)
+			foo(xc, "broadcast", "Foo.Sum", &Args{Num1: i, Num2: i * i})
+		}(i)
 	}
-	fv := reflect.ValueOf(f)
-	param1 := reflect.ValueOf(arg1)
-	param2 := reflect.ValueOf(arg2)
-	fv.Call([]reflect.Value{param1, param2})
+	wg.Wait()
 }
+
+func main() {
+	ch1 := make(chan string)
+	ch2 := make(chan string)
+
+	go ServerRun(ch1)
+	go ServerRun(ch2)
+
+	addr1 := <-ch1
+	addr2 := <-ch2
+
+	time.Sleep(time.Second)
+
+	call(addr1, addr2)
+	// broadCast(addr1, addr2)
+
+	log.Println("done")
+}
+
+// func add(i, j int) {
+// 	log.Println(j + i)
+// }
+
+// func call(methodName string, arg1, arg2 interface{}) {
+// 	var f func(j, i int)
+// 	switch methodName {
+// 	case "add":
+// 		f = add
+// 	}
+// 	fv := reflect.ValueOf(f)
+// 	param1 := reflect.ValueOf(arg1)
+// 	param2 := reflect.ValueOf(arg2)
+// 	fv.Call([]reflect.Value{param1, param2})
+// }

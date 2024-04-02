@@ -11,7 +11,7 @@ type methodType struct {
 	method    reflect.Method
 	ArgType   reflect.Type
 	ReplyType reflect.Type
-	numCalls  uint64
+	numCalls  uint64 //调用次数
 }
 
 func (m *methodType) NumCalls() uint64 {
@@ -76,7 +76,6 @@ func (s *service) registerMethods() {
 			method:    method,
 			ArgType:   argType,
 			ReplyType: replyType,
-			// numCalls: , 没有num calls
 		}
 		s.method[method.Name] = m
 		log.Printf("rpc server: register %s.%s\n", s.name, method.Name)
